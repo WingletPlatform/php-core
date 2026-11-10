@@ -1,0 +1,36 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Winglet\Core\Support\ControllerScanner;
+use Winglet\Core\Http\Routing\RouteMapBuilder;
+
+//$basePath = realpath(__DIR__ . '/..') ?: __DIR__ . '/..';
+$basePath = '/var/www/';
+$routeCachePath = $basePath . '/cache/router/';
+if (!is_dir($routeCachePath)) mkdir($routeCachePath, 0777, true);
+
+// oletus App\
+$namespacePrefix = $argv[1] ?? 'App\\';
+$srcDir = $argv[2] ?? ($basePath . 'App/src');
+$subDir = $argv[3] ?? 'Controller';
+
+$scanner = new ControllerScanner();
+$classes = $scanner->scan($namespacePrefix, $srcDir, $subDir);
+
+// lisää frameworkin dev controller (ja halutessa Health/Echo)
+$classes[] = \Winglet\Core\Http\Controller\DevToolsController::class;
+$classes = array_values(array_unique($classes));
+sort($classes);
+
+$controllersFile = $routeCachePath . 'controllers.php';
+$scanner->writePhpArrayFile($classes, $controllersFile);
+
+// routes automaattisesti ajan tasalle
+$routesFile = $routeCachePath . 'routes.php';
+(new RouteMapBuilder())->build($classes, $routesFile);
+
+echo "Controllers generated: {$controllersFile} (" . count($classes) . ")\n";
+echo "Routes generated: {$routesFile}\n";

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -e
+
+if [ -z "$1" ]; then
+  echo "Usage: test-api <collection-folder> [environment]"
+  exit 1
+fi
+
+COLLECTION=$1
+ENV=${2:-local}
+
+if ! command -v bru &> /dev/null
+then
+    echo "Bruno CLI (bru) not found. Install from: https://docs.usebruno.com/bru-cli/install"
+    exit 1
+fi
+
+echo "Running API tests..."
+echo "Collection: $COLLECTION"
+echo "Environment: $ENV"
+
+bru run "$COLLECTION" --env "$ENV"

@@ -1,0 +1,14 @@
+{
+  "name": "Login",
+  "method": "POST",
+  "url": "{{AUTH_URL}}",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": {
+    "kind": "{{AUTH_KIND}}",
+    "identifier": "{{AUTH_IDENTIFIER}}",
+    "password": "{{AUTH_PASSWORD}}"
+  },
+  "tests": "if (res.status === 200) {\n  const data = res.body;\n\n  if (!data.token) {\n    throw new Error('Login succeeded but token not found in response');\n  }\n\n  bru.setVar('ACCESS_TOKEN', data.token);\n}"
+}

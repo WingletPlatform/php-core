@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_docker-env.sh"
+
+echo "==> composer install"
+exec_in_container "${WINGLET_COMPOSER}" install --no-interaction --prefer-dist --no-progress
+
+echo "==> php -l (lint) for src/"
+# Simple lint pass for src/ (adjust dir if needed)
+exec_in_container bash -lc 'set -euo pipefail; FAILED=0; while IFS= read -r -d "" f; do php -l "$f" >/dev/null || FAILED=1; done < <(find src -type f -name "*.php" -print0); test "$FAILED" -eq 0; echo "PHP lint OK."'
+
+echo "==> PHPStan"
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/phpstan"
+
+echo "==> PHPUnit"
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/test"

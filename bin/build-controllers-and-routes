@@ -1,0 +1,58 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Winglet\Core\Http\Routing\ControllerMapBuilder;
+use Winglet\Core\Kernel\Bootstrap\Bootstrapper;
+
+require_once __DIR__ . '/../src/Kernel/Bootstrap/Bootstrapper.php';
+
+$runtimeRoot = getenv('APP_RUNTIME_ROOT');
+if (!is_string($runtimeRoot) || $runtimeRoot === '') {
+    $runtimeRoot = '/var/www';
+}
+$runtimeRoot = rtrim($runtimeRoot, '/\\');
+
+$appRoot = getenv('APP_SOURCE_ROOT');
+if (!is_string($appRoot) || $appRoot === '') {
+    $appRoot = $runtimeRoot . '/App';
+}
+$appRoot = rtrim($appRoot, '/\\');
+
+$autoload = $appRoot . '/vendor/autoload.php';
+if (!is_file($autoload)) {
+    fwrite(STDERR, "App autoload not found at {$autoload}\n");
+    exit(1);
+}
+require $autoload;
+
+if (!is_dir($appRoot . '/src')) {
+    fwrite(STDERR, "App src directory not found at {$appRoot}/src\n");
+    exit(1);
+}
+
+if (!is_dir($runtimeRoot . '/config')) {
+    fwrite(STDERR, "App config directory not found at {$runtimeRoot}/config\n");
+    exit(1);
+}
+
+if (!is_dir($runtimeRoot . '/var')) {
+    if (!mkdir($runtimeRoot . '/var', 0775, true) && !is_dir($runtimeRoot . '/var')) {
+        fwrite(STDERR, "Unable to create var directory at {$runtimeRoot}/var\n");
+        exit(1);
+    }
+}
+
+$app = (new Bootstrapper(basePath: $runtimeRoot))->boot();
+$config = $app->config;
+
+$controllersFile = $runtimeRoot . '/var/controllers.php';
+$routesFile = $runtimeRoot . '/var/routes.php';
+
+$builder = new ControllerMapBuilder();
+$classes = $builder->buildAndWrite($config, $appRoot, $controllersFile, $routesFile);
+
+echo "Runtime root: {$runtimeRoot}\n";
+echo "App source root: {$appRoot}\n";
+echo "Controllers generated: {$controllersFile} (" . count($classes) . ")\n";
+echo "Routes generated: {$routesFile}\n";

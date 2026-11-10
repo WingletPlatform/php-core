@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -e
+
+TARGET_DIR="api-tests"
+
+if [ -d "$TARGET_DIR" ]; then
+  echo "api-tests directory already exists."
+  exit 0
+fi
+
+echo "Initializing API test structure..."
+
+mkdir -p api-tests
+cp -r resources/api-tests/stubs/api-tests/* api-tests/
+mkdir -p api-tests/environments
+cp resources/api-tests/stubs/environments/local.bru api-tests/environments/local.bru
+
+echo "API test scaffold created to api-tests/"

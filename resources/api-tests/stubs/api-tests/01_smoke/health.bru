@@ -1,0 +1,6 @@
+{
+  name Health check,
+  method GET,
+  url {{BASE_URL}}health,
+  tests if (res.status !== 200) {n  throw new Error('Health check failed');n}
+}

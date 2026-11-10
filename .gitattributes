@@ -1,0 +1,17 @@
+# Exclude runtime/generated files from Composer and git-archive release packages.
+/var export-ignore
+/.phpunit.cache export-ignore
+/.php-cs-fixer.cache export-ignore
+/.phpunit.result.cache export-ignore
+
+# Exclude local IDE/editor metadata.
+/.idea export-ignore
+/.vscode export-ignore
+
+# Exclude dependencies and temporary local artifacts if accidentally present.
+/vendor export-ignore
+/*.zip export-ignore
+
+# Exclude development-only project assets from distribution packages.
+/tests export-ignore
+/docs/Plans export-ignore

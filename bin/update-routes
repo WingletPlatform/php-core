@@ -1,0 +1,23 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Winglet\Core\Http\Routing\RouteMapBuilder;
+
+//$basePath = realpath(__DIR__ . '/..') ?: __DIR__ . '/..';
+$basePath = '/var/www/';
+
+$routeCachePath = $basePath . '/cache/router/';
+if (!is_dir($routeCachePath)) mkdir($routeCachePath, 0777, true);
+
+$controllersFile = $routeCachePath . 'controllers.php';
+$routesFile      = $routeCachePath . 'routes.php';
+
+$controllers = is_file($controllersFile) ? require $controllersFile : [];
+if (!is_array($controllers)) $controllers = [];
+
+(new RouteMapBuilder())->build($controllers, $routesFile);
+
+echo "Routes generated: {$routesFile} (" . count($controllers) . " controllers)\n";

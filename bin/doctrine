@@ -1,0 +1,89 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Doctrine\ORM\Tools\Console\ConsoleRunner;
+use Doctrine\ORM\Tools\Console\EntityManagerProvider\SingleManagerProvider;
+use Winglet\Core\Kernel\Bootstrap\Bootstrapper;
+
+/*
+|--------------------------------------------------------------------------
+| Resolve application paths
+|--------------------------------------------------------------------------
+|
+| These environment variables allow flexible deployment layouts.
+| Defaults match the current Winglet Docker environment.
+|
+*/
+
+$runtimeRoot = getenv('APP_RUNTIME_ROOT') ?: (getenv('WINGLET_RUNTIME_ROOT') ?: '/var/www');
+$runtimeRoot = rtrim((string)$runtimeRoot, '/\\');
+
+$appPath = getenv('APP_SOURCE_ROOT') ?: (getenv('WINGLET_APP_PATH') ?: ($runtimeRoot . '/App'));
+$appPath = rtrim((string)$appPath, '/\\');
+
+/*
+|--------------------------------------------------------------------------
+| Validate application structure
+|--------------------------------------------------------------------------
+*/
+
+if (!file_exists($appPath . '/vendor/autoload.php')) {
+    fwrite(STDERR, "Unable to locate autoload.php in {$appPath}/vendor\n");
+    exit(1);
+}
+
+require $appPath . '/vendor/autoload.php';
+
+/*
+|--------------------------------------------------------------------------
+| Boot Winglet application
+|--------------------------------------------------------------------------
+*/
+
+try {
+    $bootstrapper = new Bootstrapper($runtimeRoot);
+    $app = $bootstrapper->boot();
+} catch (Throwable $e) {
+    fwrite(STDERR, "Winglet bootstrap failed:\n");
+    fwrite(STDERR, $e->getMessage() . "\n");
+    exit(1);
+}
+
+/*
+|--------------------------------------------------------------------------
+| Retrieve Doctrine EntityManager
+|--------------------------------------------------------------------------
+*/
+
+$entityManager = $app->doctrine->getEntityManager();
+
+/*
+|--------------------------------------------------------------------------
+| Provide small convenience alias
+|--------------------------------------------------------------------------
+|
+| Allows:
+|   winglet-doctrine update
+|
+| Instead of:
+|   winglet-doctrine orm:schema-tool:update
+|
+*/
+
+global $argv;
+
+if (isset($argv[1]) && $argv[1] === 'update') {
+    $argv[1] = 'orm:schema-tool:update';
+    $_SERVER['argv'][1] = 'orm:schema-tool:update';
+}
+
+/*
+|--------------------------------------------------------------------------
+| Run Doctrine Console
+|--------------------------------------------------------------------------
+*/
+
+ConsoleRunner::run(
+        new SingleManagerProvider($entityManager)
+);

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_docker-env.sh"
+
+echo "==> Running PHPUnit in container"
+exec_in_container "${WINGLET_PHP}" -v
+exec_in_container "${WINGLET_COMPOSER}" --version
+
+# Ensure deps exist (fast if already installed)
+exec_in_container "${WINGLET_COMPOSER}" install --no-interaction --prefer-dist --no-progress
+
+# Run tests
+exec_in_container ./vendor/bin/phpunit "$@"

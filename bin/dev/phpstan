@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_docker-env.sh"
+
+echo "==> Running PHPStan in container"
+exec_in_container "${WINGLET_PHP}" -v
+
+# Ensure deps exist
+exec_in_container "${WINGLET_COMPOSER}" install --no-interaction --prefer-dist --no-progress
+
+if exec_in_container test -f phpstan.neon || exec_in_container test -f phpstan.neon.dist; then
+  exec_in_container ./vendor/bin/phpstan analyse "$@"
+else
+  exec_in_container ./vendor/bin/phpstan analyse -l 6 src "$@"
+fi

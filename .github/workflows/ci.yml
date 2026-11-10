@@ -1,0 +1,67 @@
+name: PHP 8.5 CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  php:
+    name: Composer, PHPStan, PHPUnit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up PHP 8.5
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: openssl, pdo
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Validate Composer manifest
+        run: composer validate --no-interaction --strict
+
+      - name: Install locked dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+
+      - name: Check PHP platform requirements
+        run: composer check-platform-reqs
+
+      - name: PHP syntax lint
+        run: |
+          ./bin/ci/php-lint.sh src
+          ./bin/ci/php-lint.sh tests
+          ./bin/ci/php-lint.sh resources/config
+          ./bin/ci/php-lint.sh bin
+
+      - name: PHPStan
+        run: composer phpstan
+
+      - name: PHPUnit
+        run: composer phpunit
+
+  http-cors-smoke:
+    name: Base and Core HTTP-CORS smoke
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Run HTTP integration smoke
+        run: ./scripts/http-integration-smoke.sh

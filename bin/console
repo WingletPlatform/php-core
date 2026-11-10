@@ -1,0 +1,13 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use Winglet\Core\Cli\Runner;
+use Winglet\Core\Kernel\Bootstrap\Bootstrapper;
+
+require '/var/www/App/vendor/autoload.php';
+
+$app = (new Bootstrapper(basePath: '/var/www'))->boot();
+$runner = new Runner($app);
+
+exit($runner->run($_SERVER['argv'] ?? []));

@@ -1,0 +1,9 @@
+{
+  "name": "Authorized request example",
+  "method": "GET",
+  "url": "{{BASE_URL}}/auth/me",
+  "headers": {
+    "Authorization": "Bearer {{ACCESS_TOKEN}}"
+  },
+  "tests": "if (res.status !== 200) {\n  throw new Error('Authorized request failed');\n}"
+}

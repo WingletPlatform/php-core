@@ -2,7 +2,7 @@
   "name": "winglet/core",
   "description": "Winglet Core Framework",
   "type": "library",
-  "license": "proprietary",
+  "license": "MIT",
   "keywords": [
     "framework",
     "rest",

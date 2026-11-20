@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-IMAGE=${WINGLET_BASE_IMAGE:-akikettu/wingletbase:v0.4.0-RC1}
+IMAGE=${WINGLET_BASE_IMAGE:-akikettu/wingletbase:v0.4.0-RC3}
 SCRIPT_VERSION=1.2.0
 SIMPLEXML_MODE=
 for argument in "$@"; do
@@ -31,20 +31,12 @@ fail() {
     exit 1
 }
 
-if [[ -n "${BITBUCKET_BUILD_NUMBER:-}" || -n "${BITBUCKET_PIPELINE_UUID:-}" || -n "${BITBUCKET_CLONE_DIR:-}" ]]; then
-    [[ -n "${BITBUCKET_CLONE_DIR:-}" && -d "$BITBUCKET_CLONE_DIR" && ! -L "$BITBUCKET_CLONE_DIR" ]] ||
-        fail 'BITBUCKET_CLONE_DIR must name an existing, non-symlink directory in Bitbucket Pipelines.'
-    TEMP_PARENT=$(cd "$BITBUCKET_CLONE_DIR" && pwd -P) ||
-        fail 'Could not resolve BITBUCKET_CLONE_DIR.'
-    case "$CORE_ROOT" in
-        "$TEMP_PARENT"|"$TEMP_PARENT"/*) ;;
-        *) fail 'The Core checkout is outside BITBUCKET_CLONE_DIR; refusing Docker bind mounts.' ;;
-    esac
-else
-    [[ -d "${TMPDIR:-/tmp}" ]] || fail 'The local temporary directory does not exist.'
-    TEMP_PARENT=$(cd "${TMPDIR:-/tmp}" && pwd -P) ||
-        fail 'Could not resolve the local temporary directory.'
-fi
+[[ -d "${TMPDIR:-/tmp}" ]] || fail 'The local temporary directory does not exist.'
+TEMP_PARENT=$(cd "${TMPDIR:-/tmp}" && pwd -P) ||
+    fail 'Could not resolve the local temporary directory.'
+case "$TEMP_PARENT" in
+    "$CORE_ROOT"|"$CORE_ROOT"/*) fail 'The temporary parent is inside the Core checkout; refusing cleanup and Docker bind mounts.' ;;
+esac
 
 WORK_ROOT=$(mktemp -d "$TEMP_PARENT/.winglet-core-http-smoke.XXXXXX") ||
     fail 'Could not create a temporary smoke workspace.'
@@ -63,15 +55,27 @@ cleanup() {
         if [[ $result -ne 0 ]]; then
             docker logs "$CONTAINER_NAME" >&2 || true
         fi
-        docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+        if ! docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1; then
+            printf 'Failed to remove smoke container: %s\n' "$CONTAINER_NAME" >&2
+            if [[ $result -eq 0 ]]; then
+                result=1
+            fi
+        fi
     fi
     if [[ -e "$WORK_ROOT" || -L "$WORK_ROOT" ]]; then
         if [[ "$WORK_ROOT" == "$TEMP_PARENT"/.winglet-core-http-smoke.* &&
             "$WORK_ROOT" != "$CORE_ROOT" && -d "$WORK_ROOT" && ! -L "$WORK_ROOT" ]]; then
-            rm -rf -- "$WORK_ROOT"
+            if ! rm -rf -- "$WORK_ROOT"; then
+                printf 'Failed to remove smoke workspace: %s\n' "$WORK_ROOT" >&2
+                if [[ $result -eq 0 ]]; then
+                    result=1
+                fi
+            fi
         else
             printf 'Refusing to remove an unexpected smoke workspace: %s\n' "$WORK_ROOT" >&2
-            result=1
+            if [[ $result -eq 0 ]]; then
+                result=1
+            fi
         fi
     fi
     exit "$result"
@@ -184,13 +188,22 @@ if [[ -f "$CORE_ROOT/vendor/autoload.php" ]]; then
     CORE_VENDOR_PATH="$CORE_ROOT/vendor"
 else
     printf 'Core vendor directory is absent; installing locked runtime dependencies into a temporary directory with %s.\n' "$IMAGE"
-    docker run --rm -e COMPOSER_VENDOR_DIR=/opt/core-vendor --entrypoint composer \
+    docker run --rm --user "$(id -u):$(id -g)" \
+        -e COMPOSER_HOME=/tmp/composer-home \
+        -e COMPOSER_VENDOR_DIR=/opt/core-vendor --entrypoint composer \
         -v "$CORE_ROOT:/var/www/Core:ro" \
         -v "$VENDOR_ROOT:/opt/core-vendor" \
         -w /var/www/Core \
         "$IMAGE" install --no-dev --no-interaction --no-progress --prefer-dist --no-scripts
     CORE_VENDOR_PATH="$VENDOR_ROOT"
 fi
+
+for bind_directory in "$APP_ROOT" "$APP_ROOT/public" "$CORE_ROOT" "$CORE_ROOT/src" "$CORE_VENDOR_PATH"; do
+    [[ -d "$bind_directory" && ! -L "$bind_directory" ]] ||
+        fail "Docker bind source must be an existing, non-symlink directory: $bind_directory"
+done
+[[ -f "$WORK_ROOT/build-routes.php" && ! -L "$WORK_ROOT/build-routes.php" ]] ||
+    fail 'Docker route-builder bind source must be an existing, non-symlink file.'
 
 start_server() {
     local cors_mode=$1

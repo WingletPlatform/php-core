@@ -1,0 +1,186 @@
+name: Prepare Core release tag
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag: vX.Y.Z, optionally -alpha.N, -beta.N, or -rc.N'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: php-core-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-release:
+    name: Validate request and resolve main HEAD
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.validate.outputs.version }}
+      commit: ${{ steps.resolve.outputs.commit }}
+    steps:
+      - name: Validate version input
+        id: validate
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(alpha|beta|rc)\.(0|[1-9][0-9]*))?$ ]]; then
+            echo "Version must be vX.Y.Z or vX.Y.Z-(alpha|beta|rc).N with strict numeric components." >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Check out current main
+        uses: actions/checkout@v5
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Confirm dispatch and checkout point to current main HEAD
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Dispatch this workflow from the main branch." >&2
+            exit 1
+          fi
+          git fetch --no-tags origin main
+          checked_out="$(git rev-parse HEAD)"
+          main_head="$(git rev-parse FETCH_HEAD)"
+          if [[ "$checked_out" != "$main_head" ]]; then
+            echo "The main branch moved while resolving the release commit; start a new run." >&2
+            exit 1
+          fi
+          printf 'commit=%s\n' "$checked_out" >> "$GITHUB_OUTPUT"
+
+  php-gates:
+    name: Composer, PHP lint, PHPStan, PHPUnit
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out exact release commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-release.outputs.commit }}
+          persist-credentials: false
+
+      - name: Confirm checked out release commit
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+
+      - name: Set up PHP 8.5
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: openssl, pdo
+          tools: composer:v2
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/composer
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Validate Composer manifest
+        run: composer validate --no-interaction --strict
+
+      - name: Install locked dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress --no-scripts
+
+      - name: Check PHP platform requirements
+        run: composer check-platform-reqs
+
+      - name: PHP syntax lint
+        run: |
+          ./bin/ci/php-lint.sh src
+          ./bin/ci/php-lint.sh tests
+          ./bin/ci/php-lint.sh resources/config
+          ./bin/ci/php-lint.sh bin
+
+      - name: PHPStan
+        run: composer phpstan
+
+      - name: PHPUnit
+        run: composer phpunit
+
+  http-cors-smoke:
+    name: Base RC3 and Core HTTP-CORS smoke
+    needs: resolve-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      WINGLET_BASE_IMAGE: akikettu/wingletbase:v0.4.0-RC3
+    steps:
+      - name: Check out exact release commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-release.outputs.commit }}
+          persist-credentials: false
+
+      - name: Confirm checked out release commit
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.commit }}
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+
+      - name: Run HTTP integration smoke
+        run: ./scripts/http-integration-smoke.sh
+
+  publish-tag:
+    name: Create version tag after all release gates
+    needs: [resolve-release, php-gates, http-cors-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact release commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve-release.outputs.commit }}
+          persist-credentials: false
+
+      - name: Confirm main HEAD and tag are unchanged and license metadata is ready
+        env:
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.commit }}
+          RELEASE_VERSION: ${{ needs.resolve-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"
+          remote_refs="$(git ls-remote origin refs/heads/main "refs/tags/$RELEASE_VERSION")"
+          main_head="$(awk '$2 == "refs/heads/main" { print $1 }' <<< "$remote_refs")"
+          existing_tag="$(awk -v tag="refs/tags/$RELEASE_VERSION" '$2 == tag { print $1 }' <<< "$remote_refs")"
+          if [[ -z "$main_head" || "$main_head" != "$RELEASE_COMMIT" ]]; then
+            echo "main no longer points to the gated release commit; refusing to create a tag." >&2
+            exit 1
+          fi
+          if [[ -n "$existing_tag" ]]; then
+            echo "Tag $RELEASE_VERSION already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+          license="$(php -r '$composer = json_decode(file_get_contents("composer.json"), true, 512, JSON_THROW_ON_ERROR); echo $composer["license"] ?? "";')"
+          if [[ -z "$license" || "$license" == "proprietary" ]]; then
+            echo "Release is blocked until the package owner resolves and records an approved distributable license in composer.json." >&2
+            exit 1
+          fi
+
+      - name: Create tag ref without force update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.resolve-release.outputs.version }}
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.commit }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            --field "ref=refs/tags/$RELEASE_VERSION" \
+            --field "sha=$RELEASE_COMMIT"

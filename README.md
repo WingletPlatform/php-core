@@ -123,9 +123,19 @@ It requires Docker and a reachable Base image; its current default is `akikettu/
 
 ## CI and releases
 
-GitHub Actions runs on pushes to `main`, version tags matching `v*`, and pull requests. The PHP job validates and installs Composer dependencies, checks platform requirements and PHP syntax, then runs PHPStan and PHPUnit. A separate job runs the Base/Core HTTP-CORS smoke. This workflow does not publish a Core package or Docker image.
+GitHub Actions CI runs on pushes to `main`, version tags matching `v*`, and pull requests. The PHP job validates and installs Composer dependencies, checks platform requirements and PHP syntax, then runs PHPStan and PHPUnit. A separate job runs the Base/Core HTTP-CORS smoke. Core releases are distinct from Base image releases; see [Core releases](https://github.com/WingletPlatform/php-core/releases). The Base image tag `v0.4.0-RC3` identifies the runtime image, not a Core package version.
 
-Core releases are distinct from Base image releases. See [Core releases](https://github.com/WingletPlatform/php-core/releases) for Core tags. The Base image tag `v0.4.0-RC3` identifies a runtime image, not a Core version.
+The separate **Prepare Core release tag** workflow is manually dispatched from `main`. It accepts strict `vX.Y.Z` versions and `-alpha.N`, `-beta.N`, or `-rc.N` prerelease suffixes. It resolves the current `main` commit, runs both complete CI jobs on that exact commit (including the HTTP/CORS smoke with Base RC3), and only then creates a new version tag. It refuses an existing tag, a changed `main` HEAD, and a package manifest that still declares `proprietary`. The tag creation uses the workflow token; GitHub suppresses new workflow runs triggered by that token-created tag, so the release workflow's gates are the verification evidence for that commit. Preparing this workflow does not mean a release or Packagist publication has occurred.
+
+Before making a package available to the public, the repository owner must resolve the current licensing readiness issue: `composer.json` declares `"license": "proprietary"` and this checkout has no root `LICENSE` file. No license permission is inferred here. The release tag job fails closed while the manifest remains proprietary; the owner must confirm distribution rights and update the package license metadata before a release can proceed.
+
+One-time Packagist setup, after licensing is resolved:
+
+1. Manually submit [https://github.com/WingletPlatform/php-core](https://github.com/WingletPlatform/php-core) at [Packagist.org](https://packagist.org).
+2. Confirm Packagist identifies the package as `winglet/core`.
+3. Configure the Packagist GitHub integration/webhook for automatic updates when repository tags are created.
+
+Packagist recognizes the new version through its configured GitHub integration. This process does not upload a release archive to Packagist and does not require inventing or storing a Packagist API token.
 
 ## License
 
